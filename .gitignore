@@ -1,0 +1,56 @@
+# .gitignore - bluespec
+
+# archive files
+*.bz2
+*.gz
+*.zip
+*.tar
+
+# bsc compiler
+*.ba
+*.bo
+
+# c/c++
+*.cxx
+*.h
+# compiled object files
+*.o
+
+# common
+log
+*.log
+
+build/
+out
+out.so
+out_v
+
+*.dot
+
+*.vcd
+
+# emacs
+*~
+*#
+
+# jetbrains ide
+*.iml
+.idea/
+
+# inclusions
+!bin/setup.sh
+!bin/.aliases.sh
+!*.tar.gz
+
+# folders
+archive/
+
+# Operating system files
+*~
+~*.*
+.DS_Store
+[Dd]esktop.ini
+Thumbs.db
+**/*encryptable
+**/*Zone.Identifier
+
