@@ -1,0 +1,371 @@
+= Virtual FPGA overall Architecture
+Rishiyur S. Nikhil, Bluespec, Inc. (c) 2025-2026
+:revnumber: v1.0
+:revdate: 2025-12-19
+:sectnums:
+:toc:
+:toclevels: 5
+:toc: left
+:toc-title: Contents
+:description: Infrastructure to provide a "virtual FPGA" layer across multiple specific FPGAs
+:keywords: FPGA, Custom Logic
+:imagesdir: ../Figs
+:data-uri:
+
+// ================================================================
+// SECTION
+== Introduction
+
+We wish to run M hardware designs on N FPGA boards with M+N effort
+instead of MxN effort (effort = coding, building, testing).  To
+achieve this, we define a standard "`Virtual FPGA interface`" between
+the application hardware design ("`DUT`") and a board-specific "`Board
+Adapter`", as shown in the figure below.  The standard interface is
+shared across all FPGA boards.  Then, each hardware design is designed
+just once with the standard "`virtual FPGA interface`".  For each FPGA
+board, we design its "`Board Adapter`" once, which presents the
+standard "`Virtual FPGA interface`" to all DUTs that use it.
+
+image::RSN_2025-12-17.000.00_virtual_FPGA_arch.png[align="center", width=800]
+
+Host-side software consists of two major parts: user application code
+running at user level, and system support such as a device driver,
+usually running at OS kernel-level.
+
+Different hosts may require different system support, depending on the
+host architecture and operating system.
+
+// ================================================================
+// SECTION
+== Details
+
+In the sections below, paragraphs introduced with "`*development
+tactic*`" suggest a minimal initial implementation, to be refined
+later into a more full-function and optimized implementation.  This
+will enable a quick bring-up of a new host/board combo with minimal
+but usable functionality, to be fleshed out later over time.
+
+// ----------------------------------------------------------------
+// SUBSECTION
+=== Clocks for the DUT (FPGA-side)
+
+Different DUTs will have different maximum clock speeds at which they
+can be synthesized, depending on their circuit complexity and
+structure.  The purpose of providing multiple clocks is to accommodate
+different DUTs, each of which will use one or more of the provided
+clocks.  Most DUTs use just one clock.
+
+Usually the whole FPGA itself receives a master fast clock from the
+board, and a clock-divider in the Board Adapter creates the slower
+clocks for the DUT.  FPGA vendors usually provide clock-divider IPs.
+
+The number of clocks, and their clock speeds, may be different across
+FPGA boards. This table shows an example of clock speeds that may be
+provided:
+
+----
+    default clk (CLK)    250   MHz
+    clk1                 125   MHz    (CLK / 2)
+    clk2                  83.3 MHz    (CLK / 3)
+    clk3                  50   MHz    (CLK / 5)
+    clk4                  25   MHz    (CLK / 10)
+    clk5                  10   MHz    (CLK / 25)
+----
+
+*Development tactic:* Initially, provide just one clock (the fast
+clock).  Then, refine the design to support multiple clocks.
+
+// ----------------------------------------------------------------
+// SUBSECTION
+=== Data communication to/from with host (host-side and FPGA-side)
+
+An FPGA board will typically communicate with a host computer over a
+PCIe bus, or USB or Ethernet connections.
+
+The Board Adapter, together with a corresponding device driver on the
+host-side, should provide the following abstraction.  User-code on the
+host should be able to invoke standard C library calls:
+
+----
+    int
+    open(const char *path, int oflag, ...);
+
+    int
+    close(int fildes);
+
+    ssize_t
+    pread(int d, void *buf, size_t nbyte, off_t offset);
+
+    ssize_t
+    pwrite(int fildes, const void *buf, size_t nbyte, off_t offset);
+----
+
+A `pread()` should result in one or more READ transactions on the
+AXI4S (AXI4 Subordinate) interface from the Board Adapter to the DUT,
+starting at the address `offset`.
+
+A `pwrite()` should result in one or more WRITE transactions on the
+AXI4S (AXI4 Subordinate) interface from the Board Adapter to the DUT,
+starting at the address `offset`.
+
+`offset` should be a 64-bit address.
+
+*AXI4 Errors:* TBD.  DUTs may respond to an AXI4S transaction with an
+AXI4 error.  It's unclear if/how this should be communicated back to
+host-side application code.  We want the `pread()/pwrite()`
+transactions to be "`fire-and-forget`" transactions, in order to
+promote highest bandwidth, so we can't return an error code for the
+call itself (an error may not be known until later).  At best we can
+report errors asynchronously (like interrupts) or log them as they
+become known.
+
+*Development tactic:* Initially, we can implement single
+(non-burst-mode) transactions, i.e., a `pread()/pwrite()` is
+translated into multiple single AXI4S transactions.  Then, refine the
+design to support burst-mode on the AXI4S interface, so that a
+`pread()/pwrite()` is translated into a minimal number of burst-mode
+transactions, and data is transferred across the PCIe/USB/Ethernet
+using DMA.  Initial implementations should not try to report AXI4
+errors.
+
+*Development tactic:* Initially, we can restrict ourselves to x86
+hosts running Debian/Ubuntu.  Over time, we could expand this to cover
+other operating systems (MacOS, Windows, embedded/real-time OSes, ...)
+and other host architectures (ARM, Apple Silicon, RISC-V, ...)
+
+// ----------------------------------------------------------------
+// SUBSECTION
+=== Interrupting the host
+
+The DUT should be able to enqueue an interrupt request message in the
+Board Adapter (im the diagram, this interface is depicted with a FIFO
+icon).  The message can carry a small, fixed-size payload (e.g., 64
+bits, consisting of a 16-bit interrupt number and 48-bit data).
+
+The Board Adapter dequeues these and delivers it to the host-side, in
+order.  Eventually, a user-supplied host-side interrupt handler
+routine is invoked with the payload as argument.
+
+Some host-connections (such s PCIe) have facilities for delivering
+interrupts to the host, while other host-connections (possibly USB,
+Ethernet) will not.  In the latter case, one option is to "`emulate`"
+interrupts by polling from the host over the host data connection
+(AXI).
+
+*Development tactic:* Ignore this requirement and add it later.
+Interrupt-capability can be emulated with a host-side pthread polling
+a hardware-side interrupt request queue, and doing callbacks from that
+pthread.
+
+// ----------------------------------------------------------------
+// SUBSECTION
+=== Memory
+
+The FPGA's DDR memory should be connected to the DUT's AXI4M (AXI4
+Manager) interfaces.
+
+Each DDR port on the board should be preserved and connected to its
+own AXI4M port.  Premature combining into a common port can add
+overhead that becomes unavoidable by the DUT.
+
+It is expected that FPGA boards will vary on:
+
+* Number of DDR ports
+* Size of address range on each DDR port
+* Width of data bus on each DDR port
+* Speed of each DDR port
+
+The above details should be provided on the datasheet for each Board
+Adapter.
+
+*Development tactic:* Support at least one DDR port.  If more DDRs are
+available, they can be added later.
+
+// ----------------------------------------------------------------
+// SUBSECTION
+=== Optional FPGA resources
+
+If the FPGA board contains other resources, they should be accessible
+through AXI4M interfaces on the DUT.  Examples:
+
+* Flash/ROM
+* UART
+* GPIO
+* Other Ethernet/USB connection
+* Sensors, actuators, ...
+
+*Development tactic:* Initially, do not provide any optional FPGA
+resources. Add them later, if needed.  *Note:* for FPGAs in the cloud,
+such as Amazon F1/F2 instances, there are no such resources;
+everything has to be done through the host.
+
+// ----------------------------------------------------------------
+// SUBSECTION
+=== AXI4 interface variations
+
+AXI4 interfaces vary on four bus-widths: `id`, `address`, `data`, `user`.
+
+For the Board Adapter AXI4M DDR interfaces we recommend using the
+"`natural`" width for the `data` bus in the actual hardware, without
+any extra widening or narrowing logic.  Premature widening/narrowing
+can add overhead that becomes unavoidable by the DUT.  The DUT can
+implement its own widening/narrowing if it needs to, for which library
+IP is available.
+
+For the `address` bus, we suggest using 32 or 64 bits, even if the
+DDR's supported address space is much smaller; just ignore the extra
+MSBs.  For the `id` and `user` buses we suggest using 16 bits and just
+reflecting them from requests to responses.
+
+// ----------------------------------------------------------------
+// SUBSECTION
+=== Board Adapter's Verilog module structure
+
+The figure in the Intoduction depicts abstraction layers.  The
+following figure shows a more concrete board-and-Verilog-module view.
+
+image::RSN_2025-12-19.000.00_virtual_FPGA_modules.png[align="center", width=800]
+
+In the FPGA, the Board Adapter is the top-level module. It connects
+directly to the pins of the FPGA and is shown in the figure as `module
+board_adapter`.  It instantiates several Verilog modules and IPs and
+connects them up suitably:
+
+* The DUT, shown as `module mkVirtual_FPGA_DUT`
+* IPs needed by the DUT, for clocks, PCIe/USB/Ethernet host
+  connectivity, DDRs, optional IPs for Flash/ROM, UART, GPIO,
+  external USB/Ethernet connections, ... +
+  These IPs are usually provided in the FPGA vendor's libraries.
+
+`module board_adapter` is likely created using FPGA-vendor specific
+tools (such as Xilinx Vivado) because it heavily uses vendor-supplied
+IPs.  It should instantiate `module mkVirtual_FPGA_DUT` and connect
+to its ports.
+
+`module mkVirtual_FPGA_DUT` is created by each user, per application.
+It can be created in any HDL or combination of HDLs (Verilog,
+SystemVerilog, Bluespec, other HDL, ...) provided the result is a
+Verilog module.  It will usually be created in some other
+repositories, not in this repository.
+
+To create the FPGA bitfile, we will provide a build flow that
+includes `module board_adapter` and the user's `module mkVirtual_FPGA_DUT`
+
+We will provide one `module mkVirtual_FPGA_DUT` for testing this
+Virtual FPGA infrastructure (see Testing section below).
+
+// ----------------
+==== Example DUT
+
+In the directory `Interface_Spec` we provide Verilog for an example
+"`empty`" DUT that can be used as a proxy for the real DUT, during
+Board Adapter development.
+
+The Verilog file is generated from the following BSV code, in file
+`Virtual_FPGA_DUT.bsv`.
+
+----
+interface Virtual_FPGA_DUT_IFC;
+   // AXI4 from host
+   interface AXI4_RTL_S_IFC #(16, 64, 512, 0) host_AXI4_S;
+
+   // Interrupts to host
+   interface FIFOF_O #(Bit #(64)) tohost_interrupts;
+
+    // DDR interfaces
+   interface AXI4_RTL_M_IFC #(16, 64, 512, 0) ddr_A_M;
+   interface AXI4_RTL_M_IFC #(16, 64, 512, 0) ddr_B_M;
+endinterface
+
+module mkVirtual_FPGA_DUT
+   #(Clock clk1, Clock clk2, Clock clk3, Clock clk4, Clock clk5)
+   (Virtual_FPGA_DUT_IFC);
+
+   // ... empty, for this proxy generator
+
+endmodule
+----
+
+In the `Interface_Spec/` directory, running `make v_compile` will
+create `verilog/mkVirtual_FPGA_DUT.v` containing a Verilog module
+`mkVirtual_FPGA_DUT`.  Its body is empty (contains no DUT logic) but
+it has the required input and output ports according the the figure in
+the Introduction, so it serves as a specification of the interface
+between the Board Adapter and the DUT.
+
+[NOTE]
+====
+This is just an example, incorporating specific choices:
+
+* It assumes the Board Adapter provides five clocks
+* It has two DDR interfaces
+* The host and DDR interfaces have particular widths for the AXI4 buses
+
+This example should be treated as a template, and should be adjusted
+to match a particular Board Adapter, which may be differ in these
+choices.
+====
+
+// ================================================================
+// SECTION
+== Simulation
+
+For every FPGA board, we should provide a corresponding simulation setup.
+
+In the figure shown in Section 1, the Board Adapter layer is replaced
+by Verilog that invokes C code that communicates to/from the host.
+This communication could be over TCP, shared memory, pipes, etc.
+
+Correspondingly, the host-side System Support software is replaced
+with C code (which can run entirely at user leve) that communicaes
+with the hardware-side simulation process.
+
+Ideally, the host-side application code and the DUT should require
+*zero* changes, whether in simulation or on FPGA.  The host-side
+application code is simply linked to a different library, and the
+FPGA-side DUT is instantiated in an alternative Verilog top-level that
+invokes the C code for communication with the host and implements
+memory models.
+
+Goal: If the host-side application code and the DUT work in simulation
+then, assuming successful FPGA synthesis of the DUT, it should work
+_immediately_ on the FPGA, with no changes, no surprises.
+
+// ================================================================
+// SECTION
+== Testing
+
+Testing requires:
+
+* FPGA-side: a simple DUT that simply connects the host-communication
+  AXI4S interface to the DDR AXI4M interfaces via an AXI4 switch.
+
+* Host-side: a simple C program that invokes `pread()/pwrite()` to
+  perform reads and writes on the DDRs on the FPGA-side, and checks
+  for correct memory operation.  The code should perform millions of
+  reads/writes, to random legal addresses, with random legal sizes,
+  and to specific directed corner cases (address boundaries of the
+  DDRs).
+
+// ================================================================
+// SECTION
+== Board Adapter Data Sheet
+
+The Board Adapter data sheet should document which features are implemented,
+and with what parameters, e.g.,
+* Number of provided clocks, their speeds
+* Host-communication AXI4S bus widths; whether or not bursts are supported
+* Whether or not FPGA-to-host-interrupts are supported
+* Number of DDR4 AXI4M interfaces, their bus widths and supported address ranges
+
+The Board Adapter data sheet should document how to build the
+FPGA-side bitfile, assuming we have the DUT Verilog with matching
+Board Adapter interface.
+
+The Board Adapter data should specify how to build the host-side
+executable (how to link to/invoke the System Support API).
+
+The host-side System Support for each board should support an API-call
+to discover the data sheet information.
+
+// ================================================================
