@@ -306,9 +306,9 @@ to match a particular Board Adapter, which may be differ in these
 choices.
 ====
 
-// ================================================================
-// SECTION
-== Simulation
+// ----------------------------------------------------------------
+// SUBSECTION
+=== Simulation support
 
 For every FPGA board, we should provide a corresponding simulation setup.
 
@@ -333,19 +333,73 @@ _immediately_ on the FPGA, with no changes, no surprises.
 
 // ================================================================
 // SECTION
-== Testing
+== Build Flows
 
-Testing requires:
+We would like each application to be portable across multiple
+host-sides (architecture, OS) and across multiple FPGA boards.
+Further for each such setup, we would like a version that runs
+entirely in simulation.
 
-* FPGA-side: a simple DUT that simply connects the host-communication
-  AXI4S interface to the DDR AXI4M interfaces via an AXI4 switch.
+The components are illustrated in the following figure.
 
-* Host-side: a simple C program that invokes `pread()/pwrite()` to
-  perform reads and writes on the DDRs on the FPGA-side, and checks
-  for correct memory operation.  The code should perform millions of
-  reads/writes, to random legal addresses, with random legal sizes,
-  and to specific directed corner cases (address boundaries of the
-  DDRs).
+image::RSN_2025-12-19.001.00_virtual_FPGA_flows.png[align="center", width=800]
+
+For each application, +
+&nbsp;&nbsp;  for each arch/OS host-side, +
+&nbsp;&nbsp;&nbsp;&nbsp;    for each FPGA board, +
+there will be four builds:
+
+* Host-side executable for simulation
+* Host-side executable for FPGA
+* FPGA-side executable for simulation
+* FPGA-side bitfile for FPGA
+
+The first two will just be Makefiles doing standard compiles and links.
+
+The third will invoke a Verilog compiler (e.g., Verilator) and do compiles and links.
+
+The fourth will involve the FPGA vendor's bitfile build tools running
+on Virtual FPGA L1 Verilog (top-level) and the DUT's Verilog
+(instantiated somewhere inside the top-level).
+
+Goals:
+
+* For a given platform (arch/OS + FPGA), between FPGA and simulation
+    builds, there should be _zero_ source-code changes in application
+    host-side code and DUT code.
+
+* For a given application, across platforms, there should be _minimal_
+    (ideally zero) source-code changes in application host-side code
+    and DUT code.  Some configuration changes may be necessary because
+    different platforms may differ in features (e.g., number or
+    address ranges of DDRs).
+
+We expect the build directories to be located with the application,
+not with the Virtual FPGA directories, since the builds have to be
+adapted to user-specific host-side and DUT code.  The Makefiles
+etc. in the Virtual FPGA Test Application (see separate section) can
+serve as example templates to be adapted for each application.
+
+// ================================================================
+// SECTION
+== Virtual FPGA Test Application
+
+We will provide a Test Application for the Virtual FPGA infrastructure.
+
+* FPGA-side: a simple DUT, written in BSV, that simply connects the
+  host-communication AXI4S interface to the DDR AXI4M interfaces via
+  an AXI4 switch.
+
+* Host-side: a simple C program with `pread()/pwrite()` invocations,
+  which become AXI reads and writes on the DDRs on the FPGA-side.  The
+  C program checks for correct memory operation.  The code should
+  perform millions of reads/writes, to random legal addresses, with
+  random legal sizes, and to specific directed corner cases (address
+  boundaries of the DDRs).
+
+We will provide the four build flows for each supported platform
+(arch/OS + FPGA): build host-side for FPGA and for simulation, build
+DUT for FPGA and for simulation.
 
 // ================================================================
 // SECTION
