@@ -11,13 +11,13 @@ help:
 	@echo "  full_clean          Restore to pristine state"
 
 .PHONY: all
-v_all: v_compile
+all: v_compile
 
 # ****************************************************************
 # Common bsc args
 
-TOPFILE   ?= ./Virtual_FPGA_DUT.bsv
-TOPMODULE ?= mkVirtual_FPGA_DUT
+TOPFILE   ?= ./App_FPGA.bsv
+TOPMODULE ?= mkApp_FPGA
 
 VENDOR = ../vendor
 

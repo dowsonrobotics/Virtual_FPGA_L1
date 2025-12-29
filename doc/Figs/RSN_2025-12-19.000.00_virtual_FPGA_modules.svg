@@ -2251,7 +2251,7 @@
      inkscape:window-width="2464"
      inkscape:window-height="1575"
      inkscape:window-x="30"
-     inkscape:window-y="61"
+     inkscape:window-y="33"
      inkscape:window-maximized="0"
      inkscape:document-rotation="0"
      inkscape:pagecheckerboard="0"
@@ -2632,7 +2632,7 @@
          y="101.94035"
          x="121.79382"
          sodipodi:role="line"
-         id="tspan9">Design Under Test (DUT)</tspan></text>
+         id="tspan9">App_FPGA</tspan></text>
     <text
        id="text1489"
        y="83.756386"
@@ -2961,7 +2961,7 @@
          y="95.163368"
          x="58.602432"
          sodipodi:role="line"
-         id="tspan13">module mkVirtual_FPGA_DUT</tspan></text>
+         id="tspan13">module mkApp_FPGA</tspan></text>
     <text
        id="text15"
        y="83.769554"
