@@ -21,6 +21,7 @@ help:
 FILES += RSN_2025-12-17.000.00_virtual_FPGA_arch.png
 FILES += RSN_2025-12-19.000.00_virtual_FPGA_modules.png
 FILES += RSN_2025-12-19.001.00_virtual_FPGA_flows.png
+FILES += RSN_2025-12-28.000.00_virtual_FPGA_host_comms.png
 
 .PHONY: all
 all: $(FILES)
