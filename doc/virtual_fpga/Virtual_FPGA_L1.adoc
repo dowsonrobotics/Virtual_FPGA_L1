@@ -1,7 +1,7 @@
 = Virtual FPGA overall Architecture
-Rishiyur S. Nikhil, Bluespec, Inc. (c) 2025-2026
+Rishiyur S. Nikhil, (c) 2025-2026
 :revnumber: v1.0
-:revdate: 2025-12-19
+:revdate: 2025-12-30
 :sectnums:
 :toc:
 :toclevels: 5
@@ -284,10 +284,10 @@ IPs.  It should instantiate `module mkApp_FPGA` and connect to its
 ports.
 
 `module mkApp_FPGA` is application-specific.  It can be created in any
-HDL or combination of HDLs (Verilog, SystemVerilog, Bluespec, other
-HDL, ...) provided the result is a Verilog module with the appropriate
-AXI4 and other interfaces.  It will usually be created in some other
-repository, not in this Virtual FPGA repository.
+HDL or combination of HDLs (Verilog, SystemVerilog, Bluespec BSV/BH,
+other HDL, ...) provided the result is a Verilog module with the
+appropriate AXI4 and other interfaces.  It will usually be created in
+some other repository, not in this Virtual FPGA repository.
 
 To create the FPGA bitfile, we will provide a build flow that includes
 `module board_adapter` and the app's `module mkApp_FPGA`.
@@ -496,6 +496,7 @@ the data.
 
 The Board Adapter data sheet should document which features are implemented,
 and with what parameters, e.g.,
+
 * Number of provided clocks, their speeds
 * Host-communication AXI4_S bus widths; whether or not bursts are supported
 * Whether or not FPGA-to-host-interrupts are supported
