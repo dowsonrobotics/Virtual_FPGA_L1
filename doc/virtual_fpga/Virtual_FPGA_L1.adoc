@@ -22,37 +22,34 @@ effort instead of MxN effort (effort = coding, building, testing).  To
 achieve this, we define a standard "`Virtual FPGA interface`" for each
 platform, as shown in the figure below.  The standard interface is
 shared across all platforms.  Then, each app (software and hardware)
-is designed just once, interacting with this standard "`virtual FPGA
-interface`".  For each platform, we design its "`Board Adapter`" and
-host-side drivers and once.
+is designed just once, interacting with this standard "`Virtual FPGA
+interface`".  For each platform, we design and implement its "`Board
+Adapter`" and host-side drivers once, offering this standard
+interface.
 
-image::RSN_2025-12-17.000.00_virtual_FPGA_arch.png[align="center", width=800]
+image::RSN_2025-12-17.000.00_virtual_FPGA_arch.png[align="center", width=900]
 
-The host-side driver may run at OS level (e.g., to access PCIe) or at
+The host-side drivers may run at OS level (e.g., to access PCIe) or at
 user-level (e.g., for TCP for hardware simulation).
 
 // ================================================================
 // SECTION
 == Details
 
-[IMPORTANT]
-====
+In the above diagram, the following on FPGA-side capabilities are
+completely independent of each other, and can be developed
+independently and incrementally:
 
-Each of the sections below describes a _completely independent_
-capability.  Each capability can be developed independently of the
-others, with independent design decisions.
+1. App_HW to App_Host communication (Host-FPGA communication)
+2. App_HW to DDR access
+3. App_HW to other board resources
 
-Specifically, in the Virtual FPGA, App_host to App_FPGA communication
-is _completely_ independent of App_FPGA to DDR access, even though
-they both use the AXI4 protocol.  Addresses on the App_FPGA's AXI4_S
-host port have no _a priori_ relationship to addresses on App_FPGA's
-AXI4_M DDR ports--they are potentially completely separate address
-spaces.  It is up to each individual App_FPGA whether it wishes to
-establish a connection/relationship between host-AXI4 and DDR-AXI4.
-Further, the host AXI4_S port and DDR-AXI4_M ports may have different
-parameters (bus widths, burst support, ...).
+Note that for (2) and (3), the various AXI ports may have different
+parameters (bus widths, burst support, ...)
 
-====
+Note that for FPGAs in the cloud (e.g., Amazon AWS F1), capabilities
+(3) do not exist; all services are provided by proxy from the host via
+communication over (1), for example using Virtio.
 
 In the sections below, paragraphs introduced with "`*development
 tactic*`" suggest a minimal initial implementation, to be refined
@@ -60,12 +57,51 @@ later into a more full-function and optimized implementation.  This
 will enable a quick bring-up of a new host/board combo with minimal
 but usable functionality, to be fleshed out later over time.
 
-A useful initial development goal: host-FPGA communication, and access
+A useful initial development goal: Host-FPGA communication, and access
 to one DDR.  This is reflected in the order of sections below.
 
 // ----------------------------------------------------------------
 // SUBSECTION HOST COMMUNICATION
-=== Data communication to/from with host (host-side and FPGA-side)
+=== Data communication to/from with Host (Host-side and FPGA-side)
+
+As shown in the diagram, the Host-FPGA communications are implemented
+in two layers:
+
+// ----------------------------------------------------------------
+// SUBSUBSECTION
+==== Layer 2 of Host-FPGA communication
+
+Layer 2 provides the abstraction of a bundle of queues between Host
+and FPGA, and vice-versa (the number of queues in each direction need
+not be the same).  Each queue:
+
+* is _unidirectional_: enqueue on Host and
+     dequeue on FPGA, or vice versa.
+* transports discrete, fixed-sized _items_
+
+Each application specifies how many queues it needs in each direction.
+For each queue, it specifies certain fixed parameters:
+* the size of items in each queue
+* the degree of buffering in the queue (queue depth)
+These parameters may vary from one queue to the next.
+
+Layer 2 is expected to be _generated_ (e.g., from a Python script)
+according to the above App-specific parameters.
+
+Layer 2 is expected to be largely _platform-independent_, implementing
+a _credit-based flow-control_ scheme for each queue.
+
+Layer 2 depends on a simple send/receive interface to Layer 1.  The
+arguments to send/receive are just an array of bytes and a byte-count
+to be sent from/received into the array.  The array can be a fixed
+size, equal to the largest item amongst the queues in the same
+direction.
+
+// ----------------------------------------------------------------
+// SUBSUBSECTION
+==== Layer 1 of Host-FPGA communication
+
+Layer 1 is highly platform dependent.
 
 An FPGA board will typically communicate with a host computer over a
 PCIe bus, or USB or Ethernet connections.
@@ -78,89 +114,51 @@ FPGA boards will not have PCIe; most will have a USB or Ethernet port.
 
 When using USB/Ethernet, we only need it for the lowest level raw data
 transfer.  Specifically, on Ethernet we would just communicate
-Ethernet packets, and no IP/TCP/UDB/networking above that.
+Ethernet packets, with no IP/TCP/UDB/networking layers above that.
 
 ====
 
-The Board Adapter, together with its corresponding host-side driver,
-should provide the following abstraction to host-side App code:
-
-----
-    // C language. "vf" for "Virtual FPGA"
-
-    int
-    vf_open (const uint64_t vf_id);    // id for board/comms protocol...
-
-    int
-    vf_close (const uint64_t vf_id);
-
-    int
-    vf_write (const uint64_t vf_id,
-              const uint64_t addr, const uint64_t size, const uint8_t *buf);
-
-    int
-    vf_read  (const uint64_t vf_id,
-              const uint64_t addr, const uint64_t size, const uint8_t *buf);
-----
-
-A `vf_write()` should result in one or more WRITE transactions on the
-AXI4_S (AXI4 Subordinate) interface from the Board Adapter to
-App_FPGA, starting at the given address.
-
-`vf_write()` should be treated as a "`fire-and-forget`" transaction,
-i.e., the `int` return code only specifies whether the local call
-succeeded or not.  The actual communication of the `buf` data, and its
-delivery into App_FPGA's AXI4_S port, may take some time, possibly
-raising an error well into the transaction.  Such errors will be
-logged for later, asynchronous, examination.
-
-A `vf_read()` should result in one or more READ transactions on the
-AXI4_S (AXI4 Subordinate) interface from the Board Adapter to
-App_FPGA, starting at the given address.
-
-The AXI4_S port should support as wide a data bus as feasible i.e., do
-not expand/narrow the data width unnecessarily.  Premature
-width-changes can add unnecessary overhead.  App_FPGA can implement
-its own width-changes if it needs fto.  For example, on Amazon AWS F1
-instances, data width is 512 bits.
-
-IMPORTANT: Please review the IMPORTANT note at the top of the Details
-    section to remind that this host AXI4_S is completely independent
-    of the DDR AXI4_Ms.
-
-*Development tactic:* Initially, implement single (non-burst-mode),
-address-aligned transactions, i.e., each `vf_read()/vf_write()` is
-translated into multiple single AXI4_S transactions, and the starting
-address is lane-aligned for the AXI4_S bus width.  Then, refine the
-design to support non-lane-aligned and burst-mode on the AXI4_S
-interface, so that a `vf_read()/vf_write()` is translated into a
-minimal number of burst-mode transactions.
-
-*Development tactic:* Initially, implement using PIO (programmed
- I/O). Later refine to use DMA.
+As described in the previous section, Layer 1 offers a simple
+send/receive interface to Layer 2.  The arguments to send/receive are
+just an array of bytes and a byte-count to be sent from/received into
+the array.  The array can be a fixed size, equal to the largest item
+amongst the queues in the same direction.
 
 *Development tactic:* Initially, restrict to x86 hosts running
-Debian/Ubuntu.  Later, expand to cover other operating systems (MacOS,
-Windows, embedded/real-time OSes, ...)  and other host architectures
-(ARM, Apple Silicon, RISC-V, ...)
+Debian/Ubuntu (affects Host-side driver development).  Later, expand
+to cover other operating systems (MacOS, Windows, embedded/real-time
+OSes, ...)  and other host architectures (ARM, Apple Silicon, RISC-V,
+...).
+
+// ----------------------------------------------------------------
+// SUBSUBSECTION INTERRUPTS
+==== Interrupting the host
+
+For at least one, and possibly all the FPGA-to-Host direction queues,
+it should be possible to run an interrupt handler in App_Host space
+when the queue goes from empty to non-empty, so that App_Host does not
+have to poll the queues for arrival of an item.
+
+*Development tactic:* Do not implement any IRQ; add it later.  In the
+meanwhile, Host_App can poll the queues for item arrival.
 
 // ----------------------------------------------------------------
 // SUBSECTION DDR
 === DDR Memory
 
-The FPGA's DDR memory should be connected to App_FPGA's AXI4_M (AXI4
+The FPGA's DDR memory should be connected to App_HW's AXI4_M (AXI4
 Manager) interfaces.
 
 Each DDR port on the board should be preserved and connected to its
-own App_FPGA AXI4_M port, i.e., do not combine multiple DDRs to
+own App_HW AXI4_M port, i.e., do not combine multiple DDRs to
 connect to a single AXI4_M port.  Premature combining can add
-unnecessary overhead.  App_FPGA can implement its own combining if it
+unnecessary overhead.  App_HW can implement its own combining if it
 needs to.
 
 The full data width of each DDR port on the board should be preserved
-into its App_FPGA AXI4_M port, i.e., do not expand/narrow the data
+into its App_HW AXI4_M port, i.e., do not expand/narrow the data
 width.  Premature width-changes can add unnecessary overhead.
-App_FPGA can implement its own width-changes if it needs to.
+App_HW can implement its own width-changes if it needs to.
 
 It is expected that FPGA boards will vary on:
 
@@ -180,43 +178,20 @@ IMPORTANT: Please review the IMPORTANT note at the top of the Details
 DDRs, if available.
 
 // ----------------------------------------------------------------
-// SUBSECTION INTERRUPTS
-=== Interrupting the host
-
-App_FPGA has a FIFO output interface where it enqueues interrupt
-request (IRQ) messages.  Each message carries a small, 64-bit payload
-(e.g., the App may encode a 16-bit interrupt number and 48-bit data).
-
-The Board Adapter dequeues these and delivers it to the host-side, in
-order.  Eventually, the host-side driver invokes a user-supplied
-interrupt handler routine with the payload as argument.
-
-Some host-connections (such s PCIe) have facilities for delivering
-interrupts to the host, while other host-connections (possibly USB,
-Ethernet) will not.  In the latter case, we do not implement any
-separate IRQ facility; instead we can "`emulate`" interrupts by
-polling from the host over the AXI_S connection (reserving some AXI4_S
-address(es) for this).
-
-*Development tactic:* Do not implement any IRQ; add it later.  In the
-meanwhile, the capability can be emulated as described in the previous
-para.
-
-// ----------------------------------------------------------------
 // SUBSECTION CLOCKS
-=== Clocks for App_FPGA
+=== Clocks for App_HW
 
-Different App_FPGAs will have different maximum clock speeds at which
+Different App_HWs will have different maximum clock speeds at which
 they can be synthesized, depending on their circuit complexity and
-structure.  Further, some App_FPGAs may internally need clocks of
-different speeds.  Most App_FPGAs use just one clock.
+structure.  Further, some App_HWs may internally need clocks of
+different speeds.  Most App_HWs use just one clock.
 
 The purpose of providing multiple clocks is to accommodate these
 variations.
 
 Usually the whole FPGA itself receives a master fast clock from the
 board, and a clock-divider in the Board Adapter creates the slower
-clocks for App_FPGA.  FPGA vendors usually provide clock-divider IPs.
+clocks for App_HW.  FPGA vendors usually provide clock-divider IPs.
 
 The number of clocks, and their clock speeds, may be different across
 FPGA boards. This table shows an example of clock speeds that may be
@@ -239,7 +214,7 @@ Then, refine to support additional clocks.
 === Optional FPGA resources
 
 If the FPGA board contains other resources, they should be accessible
-through AXI4_M interfaces on App_FPGA.  Examples:
+through AXI4_M interfaces on App_HW.  Examples:
 
 * Flash/ROM
 * UART
@@ -271,43 +246,47 @@ directly to the pins of the FPGA and is shown in the figure as `module
 board_adapter`.  It instantiates several Verilog modules and IPs and
 connects them up suitably:
 
-* The App_FPGA, shown as `module mkApp_FPGA`
+* The App_HW, shown as `module mkApp_HW`
 
-* IPs needed by the App_FPGA, for clocks, PCIe/USB/Ethernet host
+* IPs needed by the App_HW, for clocks, PCIe/USB/Ethernet host
   connectivity, DDRs, optional IPs for Flash/ROM, UART, GPIO,
   external USB/Ethernet connections, ... +
   These IPs are usually provided in the FPGA vendor's libraries.
 
 `module board_adapter` is likely created using FPGA-vendor specific
 tools (such as Xilinx Vivado) because it heavily uses vendor-supplied
-IPs.  It should instantiate `module mkApp_FPGA` and connect to its
+IPs.  It should instantiate `module mkApp_HW` and connect to its
 ports.
 
-`module mkApp_FPGA` is application-specific.  It can be created in any
+`module mkApp_HW` is application-specific.  It can be created in any
 HDL or combination of HDLs (Verilog, SystemVerilog, Bluespec BSV/BH,
 other HDL, ...) provided the result is a Verilog module with the
 appropriate AXI4 and other interfaces.  It will usually be created in
 some other repository, not in this Virtual FPGA repository.
 
 To create the FPGA bitfile, we will provide a build flow that includes
-`module board_adapter` and the app's `module mkApp_FPGA`.
+`module board_adapter` and the app's `module mkApp_HW`.
 
-We will provide one `module mkApp_FPGA` for testing this Virtual FPGA
-infrastructure (see Testing section below), which can be used as a
-template for all other apps.
+We will provide a few examples of `module mkApp_HW` for testing this
+Virtual FPGA infrastructure (see Testing section below), which can be
+used as a template for all other apps.
 
 // ----------------
-=== Interface for App_FPGA's `mkApp_FPGA`
+=== Interface for `mkApp_HW`
+
+WARNING: This section needs rewriting. The TestApps are a better way
+         to show what the interface looks like, which now has FIFOs
+         to/from host instead of AXI4.
 
 In the directory `Interface_Spec` we provide Verilog for an example
-"`empty`" `mkApp_FPGA` that can be used as a proxy for the real
-App_FPGA during Board Adapter development.
+"`empty`" `mkApp_HW` that can be used as a proxy for the real
+App_HW during Board Adapter development.
 
 The Verilog file is generated from the following BSV code, in file
-`App_FPGA.bsv`.
+`App_HW.bsv`.
 
 ----
-interface App_FPGA_IFC;
+interface App_HW_IFC;
    // AXI4 from host
    interface AXI4_RTL_S_IFC #(16, 64, 512, 0) host_AXI4_S;
 
@@ -319,9 +298,9 @@ interface App_FPGA_IFC;
    interface AXI4_RTL_M_IFC #(16, 64, 512, 0) ddr_B_M;
 endinterface
 
-module mkApp_FPGA
+module mkApp_HW
    #(Clock clk1, Clock clk2, Clock clk3, Clock clk4, Clock clk5)
-   (App_FPGA_IFC);
+   (App_HW_IFC);
 
    // ... empty, for this proxy generator
 
@@ -329,11 +308,11 @@ endmodule
 ----
 
 In the `Interface_Spec/` directory, running `make v_compile` will
-create `verilog/mkApp_FPGA.v` containing a Verilog module
-`mkApp_FPGA`.  Its body is empty (contains no App_FPGA logic) but it
+create `verilog/mkApp_HW.v` containing a Verilog module
+`mkApp_HW`.  Its body is empty (contains no App_HW logic) but it
 has the required input and output ports according the the figure in
 the Introduction, so it serves as a specification of the interface
-between the Board Adapter and the App_FPGA.
+between the Board Adapter and the App_HW.
 
 [NOTE]
 ====
@@ -364,18 +343,18 @@ Correspondingly, the Host-side Driver is corresponding C code (which
 can run entirely at user level) and communicaes with the hardware-side
 simulation process over TCP/shared memory/pipes/...
 
-Ideally, the application code (App_host and App_FPGA)_FPGA should
+Ideally, the application code (App_host and App_HW)_FPGA should
 require _zero_ changes, whether in simulation or on FPGA.  
 Depending on simulation vs. actual FPGA,
 
 * App_host is simply linked to alternative libraries.
 
-* App_FPGA is instantiated in alternative Verilog top-levels and
+* App_HW is instantiated in alternative Verilog top-levels and
   either taken through a bitfile-build flow or a Verilog simulation
   flow.
 
-Goal: If the host-side application code and the App_FPGA work in simulation
-then, assuming successful FPGA synthesis of the App_FPGA, it should work
+Goal: If the host-side application code and the App_HW work in simulation
+then, assuming successful FPGA synthesis of the App_HW, it should work
 _immediately_ on the FPGA, with no changes, no surprises.
 
 // ================================================================
@@ -406,24 +385,24 @@ The first two will just be Makefiles doing standard compiles and links.
 The third will invoke a Verilog compiler (e.g., Verilator) and do compiles and links.
 
 The fourth will involve the FPGA vendor's bitfile build tools running
-on Virtual FPGA L1 Verilog (top-level) and the App_FPGA's Verilog
+on Virtual FPGA L1 Verilog (top-level) and the App_HW's Verilog
 (instantiated somewhere inside the top-level).
 
 Goals:
 
 * For a given platform (arch/OS + FPGA), between FPGA and simulation
     builds, there should be _zero_ source-code changes in application
-    host-side code and App_FPGA code.
+    host-side code and App_HW code.
 
 * For a given application, across platforms, there should be _minimal_
     (ideally zero) source-code changes in application host-side code
-    and App_FPGA code.  Some configuration changes may be necessary because
+    and App_HW code.  Some configuration changes may be necessary because
     different platforms may differ in features (e.g., number or
     address ranges of DDRs).
 
 We expect the build directories to be located with the application,
 not with the Virtual FPGA directories, since the builds have to be
-adapted to user-specific host-side and App_FPGA code.  The Makefiles
+adapted to user-specific host-side and App_HW code.  The Makefiles
 etc. in the Virtual FPGA Test Application (see separate section) can
 serve as example templates to be adapted for each application.
 
@@ -431,10 +410,10 @@ serve as example templates to be adapted for each application.
 // SECTION
 == Virtual FPGA Test Application
 
-We will provide a Test Application "`TestApp`"for the Virtual FPGA
-infrastructure.
+We will provide a small suite of Test Applications "`TestApp`"for the
+Virtual FPGA infrastructure.
 
-* FPGA-side: a simple App_FPGA, written in BSV, that simply connects
+* FPGA-side: a simple App_HW, written in BSV, that simply connects
   the host-communication AXI4_S interface to the DDR AXI4_M interfaces
   via an AXI4 switch, straightforwardly mapping AXI4_S addresses to
   AXI4_M addresses.
@@ -449,11 +428,14 @@ infrastructure.
 
 We will provide the four build flows for each supported platform
 (arch/OS + FPGA): build host-side for FPGA and for simulation, build
-App_FPGA for FPGA and for simulation.
+App_HW for FPGA and for simulation.
 
 // ================================================================
 // SECTION
 == Host-to-FPGA communications
+
+WARNING: This section needs to be rewritten, to discuss the
+    Multi-Queue interface (used to be single AXI4).
 
 This section focuses on communications between the host and FPGA,
 illustrated in the following figure.
@@ -461,13 +443,13 @@ illustrated in the following figure.
 image::RSN_2025-12-28.000.00_virtual_FPGA_host_comms.png[align="center", width=800]
 
 NOTE: We reemphasize the IMPORTANT note at the head of the Details
-      section that App_host to App_FPGA communication is _completely
-      independent_ of App_FPGA to DDR access (and hence DDR access is
+      section that App_host to App_HW communication is _completely
+      independent_ of App_HW to DDR access (and hence DDR access is
       not even shown in the above figure). Please re-read that note,
       if necessary.
 
 `vf_read()` and `vf_write()` calls in App_host are communicated to the
-FPGA-side where they are presented as AXI4 transactions on App_FPGA's
+FPGA-side where they are presented as AXI4 transactions on App_HW's
 AXI4_S port.
 
 There is no restriction on `buf` size, nor on `addr` alignment.
@@ -503,7 +485,7 @@ and with what parameters, e.g.,
 * Number of DDR4 AXI4_M interfaces, their bus widths and supported address ranges
 
 The Board Adapter data sheet should document how to build the
-FPGA-side bitfile, assuming we have the App_FPGA Verilog with matching
+FPGA-side bitfile, assuming we have the App_HW Verilog with matching
 Board Adapter interface.
 
 The Board Adapter data should specify how to build the host-side
