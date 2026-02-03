@@ -1,3 +1,5 @@
+OLD HAND-WRITTEN CODE; DELETE AFTER GENERATOR IS TESTED
+
 // Copyright (c) 2026 Rishiyur S. Nikhil. All Rights Reserved.
 
 package VF_HW_L2;
@@ -51,38 +53,28 @@ Integer l2_verbosity = 1;
 // Note: width is in bytes to simplify host-FPGA communication
 // App should zeroExtend from, or truncate to, desired width in bits.
 
+// GEN_INSERT queue_params
 // ----------------
-// Queues from host to hardware
+// H2F queue params
 
 typedef   8  H2F_q0_width_B;
 typedef 128  H2F_q0_capacity_I;
-
-// ----------------
-// Queues from hardware to host
-
-typedef   4  F2H_q0_width_B;
-typedef  32  F2H_q0_capacity_I;
-
-// ================================================================
-// Derived types and values from queue params
-
-// ----------------
-// Queues from host to hardware
 typedef TMul #(8, H2F_q0_width_B)  H2F_q0_width_b;
 Integer h2f_q0_width_b    = valueOf (H2F_q0_width_b);
 Integer h2f_q0_width_B    = valueOf (H2F_q0_width_B);
 Integer h2f_q0_capacity_I = valueOf (H2F_q0_capacity_I);
 
 // ----------------
-// Queues from hardware to host
+// F2H queue params
+
+typedef   4  F2H_q0_width_B;
+typedef  32  F2H_q0_capacity_I;
 typedef TMul #(8, F2H_q0_width_B)  F2H_q0_width_b;
 Integer f2h_q0_width_b    = valueOf (F2H_q0_width_b);
 Integer f2h_q0_width_B    = valueOf (F2H_q0_width_B);
 Integer f2h_q0_capacity_I = valueOf (F2H_q0_capacity_I);
 
-// ... and similarly for F2H q1, q2, ...
-
-// ================================================================
+// ****************************************************************
 // Queue identifiers: 0..254 for each direction.
 // 
 
@@ -104,14 +96,16 @@ interface VF_HW_L2_IFC;
    // ... TODO: Clocks
 
    // ----------------
-   // H2F queues
+   // Multi-queue interface declarations
+
+   // GEN_INSERT queue_ifc_decls
+   // ----------------
+   // H2F queue ifc decls
    interface FIFOF_O #(Bit #(H2F_q0_width_b)) fo_h2f_q0;
-   // ... and similarly for h2f_{q1,q2,...}
 
    // ----------------
-   // F2H queues
+   // F2H queue ifc decls
    interface FIFOF_I #(Bit #(F2H_q0_width_b)) fi_f2h_q0;
-   // ... and similarly for f2h_{q1,q2,...}
 
    // ----------------
    // ... TODO: AXI4 ifcs to DDR(s) 
@@ -138,23 +132,6 @@ function Action show_Queue_State (Integer qid,
    endaction
 endfunction
 
-// Sanity check that width_B in message matches queue's width_B
-function Action check_width (Qid qid, Bit #(8) width_B);
-   action
-      Bool ok;
-      if (qid == 0)
-	 ok = (width_B == fromInteger (h2f_q0_width_B));
-      else
-	 ok = False;
-
-      if (! ok) begin
-	 $display ("INTERNAL ERROR: in msg for queue %0d: incorrect width %0d",
-		   qid, width_B);
-	 $finish (1);
-      end
-   endaction
-endfunction
-
 // ================================================================
 // IMPLEMENTATION MODULE
 
@@ -167,28 +144,48 @@ module mkVF_HW_L2 (VF_HW_L2_IFC);
    Reg #(L2_State) rg_state <- mkReg (L2_STATE_STARTING);
 
    // ----------------
-   // H2F queues
+   // Queue instances
+
+   // GEN_INSERT queue_FIFOs
+   // ----------------
+   // H2F queue FIFOs
+
    FIFOF #(Bit #(H2F_q0_width_b)) f_h2f_q0 <- mkSizedFIFOF (h2f_q0_capacity_I);
    Reg #(Bit #(16)) rg_h2f_q0_size_I    <- mkRegU;
    Reg #(Bit #(16)) rg_h2f_q0_credits_I <- mkRegU;
 
    // ----------------
-   // F2H queues
-   FIFOF #(Bit #(F2H_q0_width_b)) f_f2h_q0 <- mkSizedFIFOF (f2h_q0_capacity_I);
-   Reg #(Bit #(16)) rg_f2h_q0_size_I    <- mkReg (unpack (0));
-   Reg #(Bit #(16)) rg_f2h_q0_credits_I <- mkReg (unpack (0));
+   // F2H queue FIFOs
 
+   FIFOF #(Bit #(F2H_q0_width_b)) f_f2h_q0 <- mkSizedFIFOF (f2h_q0_capacity_I);
+   Reg #(Bit #(16)) rg_f2h_q0_size_I    <- mkRegU;
+   Reg #(Bit #(16)) rg_f2h_q0_credits_I <- mkRegU;
+
+   // ----------------
    // L1 layer
    VF_HW_L1_IFC layer1 <- mkVF_HW_L1;
 
    // ================================================================
    // BEHAVIOR
 
+   function Action fa_credit_update (Bit #(8)  qid,
+				     Reg #(Bit #(16)) rg_credits_I,
+				     Bit #(16) cred_I);
+      let new_cred_I = rg_credits_I + cred_I;
+      rg_credits_I <= new_cred_I;
+      if (l2_verbosity != 0) begin
+	 $write   ("    L2.rl_recv_h2f_hdr: CRED");
+	 $display (" for remote q[%0d] cred %0d + %0d -> %0d",
+		   qid, rg_credits_I, cred_I, new_cred_I);
+      end
+   endfunction
+
    // ----------------
    // H2F queues
 
    Reg #(Qid)       rg_h2f_qid <- mkReg (qid_NOP);
    Reg #(Bit #(16)) rg_h2f_n_I <- mkReg (0);
+   Reg #(Bit #(8))  rg_h2f_width_B <- mkReg (0);
 
    Bit #(8) h2f_state_IDLE = 0;
    Bit #(8) h2f_state_CRED = 1;
@@ -232,17 +229,26 @@ module mkVF_HW_L2 (VF_HW_L2_IFC);
 	 rg_h2f_qid <= qid;
 	 Bit #(16) n_I = { v[2], v[1] };
 	 rg_h2f_n_I <= n_I;
-	 check_width (qid, v[3]);
+	 rg_h2f_width_B <= v[3];
 	 if (l2_verbosity != 0)
 	    $display ("    L2.rl_recv_h2f_hdr: DATA for qid %0d n_I %0d",
 		      qid, n_I);
       end
    endrule
 
-   // For h2f msg; rec'd hdr; now rec'v n_I data items
+   // GEN_INSERT rl_recv_h2f_qJ_data_item
+
+   // h2f q0 data msg; rec'd hdr; now rec'v n_I data items
    rule rl_recv_h2f_q0_data_item ((rg_state == L2_STATE_RUNNING)
 				  && (rg_h2f_qid == 0)
 				  && (rg_h2f_n_I != 0));
+
+      if (rg_h2f_width_B != fromInteger (h2f_q0_width_B)) begin
+         $display ("INTERNAL ERROR: in msg for q0: bad width %0d",
+                   rg_h2f_width_B);
+         $finish (1);
+      end
+
       Vector #(H2F_BUF_SIZE_B, Bit #(8))
          v <- layer1.h2f_recv (fromInteger (h2f_q0_width_B));
 
@@ -267,6 +273,7 @@ module mkVF_HW_L2 (VF_HW_L2_IFC);
    Reg #(Qid)       rg_f2h_qid <- mkReg (qid_NOP);
    Reg #(Bit #(16)) rg_f2h_n_I <- mkReg (0);
 
+   // GEN_INSERT rl_send_f2h_qJ
    rule rl_send_f2h_q0_hdr ((rg_state == L2_STATE_RUNNING)
 			    && (rg_f2h_qid == qid_NOP)
 			    && (rg_f2h_q0_size_I != 0)
@@ -304,9 +311,7 @@ module mkVF_HW_L2 (VF_HW_L2_IFC);
    // ----------------
    // F2H: send credit update for H2F queue
 
-   // Prioritize credit-update over data-send
-   (* preempts = "rl_f2h_credit_for_h2f_q0, rl_send_f2h_q0_hdr" *)
-   (* preempts = "rl_f2h_credit_for_h2f_q0, rl_send_f2h_q0_data_items" *)
+   // GEN_INSERT rl_f2h_credit_for_h2f_qJ
    rule rl_f2h_credit_for_h2f_q0 ((rg_state == L2_STATE_RUNNING)
 				  && (rg_f2h_qid == qid_NOP)
 				  && (rg_h2f_q0_credits_I != 0));
@@ -323,11 +328,22 @@ module mkVF_HW_L2 (VF_HW_L2_IFC);
       rg_h2f_q0_credits_I <= 0;
    endrule
 
+   // ----------------
+   // Prioritize rules
+
+   // GEN_INSERT rule_priorities
+   (* preempts = "rl_f2h_credit_for_h2f_q0, rl_send_f2h_q0_hdr" *)
+   (* preempts = "rl_f2h_credit_for_h2f_q0, rl_send_f2h_q0_data_items" *)
+   rule rl_dummy (False);
+   endrule
+
    // ================================================================
    // INTERFACE
 
    method Action start () if (rg_state == L2_STATE_STARTING);
-      $display ("VF_HW_L2: start()");
+      $display ("  VF_HW_L2: start()");
+
+      // GEN_INSERT queue_inits
 
       rg_h2f_q0_size_I    <= 0;
       rg_h2f_q0_credits_I <= fromInteger (h2f_q0_capacity_I);
@@ -339,6 +355,8 @@ module mkVF_HW_L2 (VF_HW_L2_IFC);
       rg_state <= L2_STATE_RUNNING;
    endmethod
 
+   // GEN_INSERT queue_ifc_defs
+
    interface FIFOF_O fo_h2f_q0;
       method notEmpty = f_h2f_q0.notEmpty;
       method first    = f_h2f_q0.first;
@@ -349,7 +367,6 @@ module mkVF_HW_L2 (VF_HW_L2_IFC);
 	 endaction
       endmethod
    endinterface
-
    interface FIFOF_I fi_f2h_q0;
       method notFull = f_f2h_q0.notFull;
       method Action enq (Bit #(F2H_q0_width_b) x);

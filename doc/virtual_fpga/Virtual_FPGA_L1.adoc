@@ -406,6 +406,123 @@ adapted to user-specific host-side and App_HW code.  The Makefiles
 etc. in the Virtual FPGA Test Application (see separate section) can
 serve as example templates to be adapted for each application.
 
+// ----------------------------------------------------------------
+// SUBSECTION
+
+=== Virtual FPGA specification file
+
+Each application will have its own requirements for:
+
+* Number of clocks (HW-side)
+
+* Number of queues in each direction between Host and HW, and the
+  characteristics of each queue:
+
+  ** Byte-width of each item in the queue (size of data transfer in
+     each "`enqueue`" or "`dequeue`" transaction)
+  ** Capacity of queues on send-side and receive side
+
+* Number and characteristics of AXI4 memory interfaces, if any.
+  Characteristics include AXI4 address and data bus width.
+
+* Number and characteristics of AXI4 interfaces to other resources, if
+  any (UART, GPIO, ...).  Characteristics include AXI4 address and
+  data bus width.
+
+These are specified as part of the application, declaratively, in a
+JSON file (e.g., `VF_Specs.json`) at the top-level of the application
+repo.
+
+// ----------------------------------------------------------------
+// SUBSECTION
+
+=== HW-side build flow, for simulation
+
+The build flow for creating a simulation executable for the HW side is
+shown in the following figure:
+
+image::RSN_2026-02-01.000.00_Virtual_FPGA_HW_Sim_Build_flow.png[align="center", width=700]
+
+There is a first `make` step (shown with red arrows) to generate a
+certain file from the JSON specification file (shown as
+`VF_TestApp/VF_Specs.json` in the diagram).  This is a one-time `make`
+for a given JSON spec file.
+
+Then, there is a second `make` step to produce the host-side
+executable from the application source files (shown as
+`VF_TestApp/Srcs_HW/App_Host.c` in the diagram), the source files
+generated in the first step, and other fixed source files.
+
+The command:
+
+----
+$ make v_compile v_link
+----
+
+creates a Verilator simulation executable, while the command:
+
+----
+$ make b_compile b_link
+----
+
+creates a Bluesim simulation executable.
+
+These executables run from the command line with no command-line
+arguments.  They will immediately listen on a TCP socket for a
+connection from the Host-side.
+
+// ----------------------------------------------------------------
+// SUBSECTION
+
+=== HW-side build flow, for FPGA
+
+_Details to be written ... but:_
+
+* _the second `make` step shown above for simulation will stop at
+    producing Verilog_, and
+
+* that will be followed by integration into boilerplate Verilog and
+  taking it through the FPGA flow (synthesis, place & route, bitfile
+  generation).
+
+// ----------------------------------------------------------------
+// SUBSECTION
+
+=== Host-side build flow, for simulation
+
+The build flow for creating a host-side executable communicating with
+a HW-side simulation is shown in the following figure:
+
+image::RSN_2026-02-01.001.00_Virtual_FPGA_Host_Sim_Build_flow.png[align="center", width=700]
+
+There is a first `make` step (shown with red arrows) to generate
+certain files from the JSON specification file (shown as
+`VF_TestApp/VF_Specs.json` in the diagram).  This is a one-time `make`
+for a given JSON spec file.
+
+Then, there is a second `make` step to produce either a Verilator or a
+Bluesim simulation executable, which uses the application source files
+(shown as `VF_TestApp/Srcs_HW/App_HW.bsv` in the diagram), the source
+files generated in the first step, and other fixed source files.
+
+The command:
+
+----
+$ make all
+----
+
+creates the host-side executable.
+
+This executable runs from the command line and will connect to a
+HW-side simulation executable that is listening on a TCP socket.
+
+// ----------------------------------------------------------------
+// SUBSECTION
+
+=== Host-side build flow, for FPGA
+
+_Details to be written ..._
+
 // ================================================================
 // SECTION
 == Virtual FPGA Test Application
