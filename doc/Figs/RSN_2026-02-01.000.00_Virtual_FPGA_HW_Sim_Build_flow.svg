@@ -5,7 +5,7 @@
    viewBox="0 0 215.9 279.4"
    version="1.1"
    id="svg8"
-   sodipodi:docname="RSN_2026-02-01.000.00_Virtual_FPGA_HW_Build_flow.svg"
+   sodipodi:docname="RSN_2026-02-01.000.00_Virtual_FPGA_HW_Sim_Build_flow.svg"
    inkscape:version="1.3.2 (091e20e, 2023-11-25)"
    inkscape:export-filename="/home/nikhil/Git/ARV_dev/Doc/Figs/ARV_HW_Architecture.png"
    inkscape:export-xdpi="96"
@@ -2194,7 +2194,7 @@
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
      inkscape:zoom="2.2892157"
-     inkscape:cx="406.25268"
+     inkscape:cx="406.25267"
      inkscape:cy="396.86081"
      inkscape:document-units="mm"
      inkscape:current-layer="layer1"
@@ -2203,8 +2203,8 @@
      inkscape:showpageshadow="false"
      inkscape:window-width="2480"
      inkscape:window-height="1514"
-     inkscape:window-x="700"
-     inkscape:window-y="2221"
+     inkscape:window-x="80"
+     inkscape:window-y="122"
      inkscape:window-maximized="0"
      inkscape:document-rotation="0"
      inkscape:pagecheckerboard="0"
@@ -2355,7 +2355,7 @@
          y="119.50817"
          x="39.112862"
          sodipodi:role="line"
-         id="tspan98">  VF_Specs.json</tspan><tspan
+         id="tspan98">  App_VF_Spec.json</tspan><tspan
          rotate="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
          style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;line-height:1.05;font-family:'Courier New';-inkscape-font-specification:'Courier New';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;text-align:start;word-spacing:0px;writing-mode:lr-tb;text-anchor:start;stroke-width:0.264583"
          y="122.84193"
@@ -2656,7 +2656,7 @@
        id="path117" />
     <path
        style="fill:none;fill-opacity:1;fill-rule:evenodd;stroke:#ff2a2a;stroke-width:0.424998;stroke-dasharray:none"
-       d="M 68.888726,118.74445 H 100.13957 V 111.1238"
+       d="M 74.107426,118.74445 H 100.15725 V 111.1238"
        id="path118" />
   </g>
 </svg>

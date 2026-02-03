@@ -430,8 +430,8 @@ Each application will have its own requirements for:
   data bus width.
 
 These are specified as part of the application, declaratively, in a
-JSON file (e.g., `VF_Specs.json`) at the top-level of the application
-repo.
+JSON file (e.g., `App_VF_Spec.json`) at the top-level of the
+application repo.
 
 // ----------------------------------------------------------------
 // SUBSECTION
@@ -445,8 +445,8 @@ image::RSN_2026-02-01.000.00_Virtual_FPGA_HW_Sim_Build_flow.png[align="center", 
 
 There is a first `make` step (shown with red arrows) to generate a
 certain file from the JSON specification file (shown as
-`VF_TestApp/VF_Specs.json` in the diagram).  This is a one-time `make`
-for a given JSON spec file.
+`App_VF_Spec.json` in the diagram).  This is a one-time `make` for a
+given JSON spec file.
 
 Then, there is a second `make` step to produce the host-side
 executable from the application source files (shown as
@@ -497,8 +497,8 @@ image::RSN_2026-02-01.001.00_Virtual_FPGA_Host_Sim_Build_flow.png[align="center"
 
 There is a first `make` step (shown with red arrows) to generate
 certain files from the JSON specification file (shown as
-`VF_TestApp/VF_Specs.json` in the diagram).  This is a one-time `make`
-for a given JSON spec file.
+`App_VF_Spec.json` in the diagram).  This is a one-time `make` for a
+given JSON spec file.
 
 Then, there is a second `make` step to produce either a Verilator or a
 Bluesim simulation executable, which uses the application source files
